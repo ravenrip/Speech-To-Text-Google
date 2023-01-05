@@ -51,7 +51,7 @@ def save_url_to_gcp_bucket(bucket_name, url):
     try:
         bucket = (
             service.buckets()
-            .insert(project=project_id, body={"name": bucket_name})
+            .insert(project=os.environ["GOOGLE_PROJECT_ID"], body={"name": bucket_name})
             .execute()
         )
         print(f"Bucket {bucket_name} created")
