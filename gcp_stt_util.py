@@ -1,16 +1,21 @@
 import os
 import urllib.request
 
+# import noisereduce as nr
+import requests
 from google.cloud import speech_v1 as speech
-from google.oauth2.credentials import Credentials
+from google.cloud import storage
+from google.oauth2 import service_account
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 
 # This file needs to be created. Refer to the README.md file for more info
 import os_environ_util
 
+# from scripy.io import wavfile
 
-def speech_to_text(config, audio):
+
+def speech_to_text(gcs_uri):
     # sourcery skip: inline-immediately-returned-variable
     """
     returns the Google Speech-To-Text result
@@ -18,10 +23,34 @@ def speech_to_text(config, audio):
     :param _type_ config: the configuration used for the google.cloud.speech.configuration
     :param _type_ audio: the fill GCP bucket uri for the audio file
     """
+    # client = speech.SpeechClient()
+    # response = client.recognize(config=config, audio=audio)
+    # print_sentences(response)
+    # return response
+
+    """Asynchronously transcribes the audio file specified by the gcs_uri."""
+    from google.cloud import speech
+
     client = speech.SpeechClient()
-    response = client.recognize(config=config, audio=audio)
-    print_sentences(response)
-    return response
+
+    audio = speech.RecognitionAudio(uri=gcs_uri)
+    config = speech.RecognitionConfig(
+        encoding=speech.RecognitionConfig.AudioEncoding.LINEAR16,
+        # sample_rate_hertz=16000,
+        language_code="en-US",
+    )
+
+    operation = client.long_running_recognize(config=config, audio=audio)
+
+    print("Waiting for operation to complete...")
+    response = operation.result(timeout=1800)
+
+    # Each result is for a consecutive portion of the audio. Iterate through
+    # them to get the transcripts for the entire audio file.
+    for result in response.results:
+        # The first alternative is the most likely one for this portion.
+        print(f"Transcript: {result.alternatives[0].transcript}")
+        print(f"Confidence: {result.alternatives[0].confidence}")
 
 
 def print_sentences(response):
@@ -34,7 +63,7 @@ def print_sentences(response):
         print(f"Confidence: {confidence:.0%}")
 
 
-def save_url_to_gcp_bucket(bucket_name, url):
+def save_url_to_gcp_bucket(bucket_name, url):  # sourcery skip: extract-method
     """
     Given a name of a GCP bucket and a URL for an audio file, save the file into the given GPC Bucket
 
@@ -43,39 +72,67 @@ def save_url_to_gcp_bucket(bucket_name, url):
     :param _type_ bucket_name: name of the GCP bucket
     :param _type_ url: URL of the audio file
     """
-    data = fetch_url(url)
+    # data = fetch_url(url)
+    # Get GCP credentials
+    # setting Google credentials
+    os.environ[
+        "GOOGLE_APPLICATION_CREDENTIALS"
+    ] = "C:\Dev\LG2 Solutions\Speech-To-Text-Google\gcloud_do_not_share\dictation-sample-82bc323451d9.json"
 
-    # Create a new bucket in Google Cloud Storage
-    credentials = Credentials.from_authorized_user_info()
-    service = build("storage", "v1", credentials=credentials)
+    os.environ["GOOGLE_PROJECT_ID"] = "dictation-sample"
+    credentials_file = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS")
+    credentials = service_account.Credentials.from_service_account_file(
+        credentials_file,
+        scopes=["https://www.googleapis.com/auth/cloud-platform"],
+    )
+
     try:
-        bucket = (
-            service.buckets()
-            .insert(project=os.environ["GOOGLE_PROJECT_ID"], body={"name": bucket_name})
-            .execute()
-        )
-        print(f"Bucket {bucket_name} created")
-    except HttpError as error:
-        print(f"An error occurred while creating the bucket: {error}")
-        bucket = None
+        storage_client = storage.Client()
+        buckets = storage_client.list_buckets()
+        if any(x.id == bucket_name for x in buckets):
+            bucket = storage_client.get_bucket(bucket_name)
+        else:
+            bucket = storage_client.bucket(bucket_name)
+            bucket.storage_class = "STANDARD"
+            new_bucket = storage_client.create_bucket(bucket, location="us")
+            print(
+                f"Created bucket {new_bucket.name} in {new_bucket.location} with storage class {new_bucket.storage_class}"
+            )
+        blob = bucket.blob(url.split("/")[-1])
+        # Pull the file name from the URL
+        # file_name = clean_wavfile(get_filename(url))
+        file_name = get_filename(url)
+        # urllib.request.urlretrieve(url, f"./{file_name}")
 
-    # Save file in the new bucket
-    if bucket is not None:
-        try:
-            bucket_name = bucket["name"]
-            # Pull the file name from the URL
-            head, tail = os.path.split(url)
-            file_name = tail
-            service.objects().insert(
-                bucket=bucket_name, body={"name": file_name}, media_body=data
-            ).execute()
-            print(f"File {file_name} saved in bucket {bucket_name}")
-        except HttpError as error:
-            print(f"An error occurred while saving the file: {error}")
+        response = requests.get(url, stream=True)
+        with open(file_name, "wb") as file:
+            for chunk in response.iter_content(100000):
+                file.write(chunk)
+        #     f_web.write(response.content)
+
+        blob.upload_from_filename(file_name)
+        print(f"File {file_name} saved in bucket {bucket_name}")
+    except HttpError as error:
+        print(f"An error occurred while saving the file: {error}")
+
+
+def get_filename(url):
+    head, file_name = os.path.split(url)
+    return file_name
 
 
 def fetch_url(url):
     # Create a request with the Accept header
-    req = urllib.request.Request(url, headers={"Accept": "audio/x-wav"})
-    response = urllib.request.urlopen(req)
+    req = urllib.request.Request(url, headers={"Accept": "audio/wav"})
+    response = urllib.request.urlretrieve(req)
     return response.read()
+
+
+def clean_wavfile(wavfile):
+
+    # load data
+    rate, data = wavfile.read(wavfile)
+    # perform noise reduction
+    reduced_noise = nr.reduce_noise(y=data, sr=rate)
+    wavfile.write(f"filtered_{wavfile}", rate, reduced_noise)
+    return f"filtered_{wavfile}"
