@@ -3,7 +3,6 @@ import urllib.request
 
 # import noisereduce as nr
 import requests
-from google.cloud import speech_v1 as speech
 from google.cloud import storage
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
@@ -15,7 +14,42 @@ import os_environ_util
 # from scripy.io import wavfile
 
 
-def speech_to_text(gcs_uri):
+def speech_to_text_beta(gcs_uri):
+    from google.cloud import speech_v1p1beta1 as speech
+    from google.cloud.speech_v1p1beta1 import enums, types
+
+    client = speech.SpeechClient()
+    audio = types.RecognitionAudio(uri=gcs_uri)
+    config = speech.types.RecognitionConfig(
+        language_code="en-US",
+        enable_speaker_diarization=True,
+        diarization_speaker_count=2,
+    )
+    operation = client.long_running_recognize(config, audio)
+    print("Waiting for operation to complete...")
+    response = operation.result(timeout=3000)
+    result = response.results[-1]
+
+    words_info = result.alternatives[0].words
+
+    tag = 1
+    speaker = ""
+
+    for word_info in words_info:
+        if word_info.speaker_tag == tag:
+            speaker = speaker + " " + word_info.word
+
+        else:
+            print("speaker {}: {}".format(tag, speaker))
+            tag = word_info.speaker_tag
+            speaker = "" + word_info.word
+
+    print("speaker {}: {}".format(tag, speaker))
+
+
+def speech_to_text(gcs_uri, _sample_rate_hertz=16000):
+    from google.cloud import speech_v1 as speech
+
     # sourcery skip: inline-immediately-returned-variable
     """
     returns the Google Speech-To-Text result
@@ -34,10 +68,18 @@ def speech_to_text(gcs_uri):
     client = speech.SpeechClient()
 
     audio = speech.RecognitionAudio(uri=gcs_uri)
-    config = speech.RecognitionConfig(
-        encoding=speech.RecognitionConfig.AudioEncoding.LINEAR16,
-        # sample_rate_hertz=16000,
+    # config = speech.RecognitionConfig(
+    #     encoding=speech.RecognitionConfig.AudioEncoding.LINEAR16,
+    #     # sample_rate_hertz=_sample_rate_hertz,
+    #     language_code="en-US",
+    # )
+
+    config = speech.v1p1beta1.types.RecognitionConfig(
+        encoding=speech.RecognitionConfig.AudioEncoding.FLAC,
+        sample_rate_hertz=_sample_rate_hertz,
         language_code="en-US",
+        enable_speaker_diarization=True,
+        diarization_speaker_count=2,
     )
 
     operation = client.long_running_recognize(config=config, audio=audio)
@@ -45,12 +87,21 @@ def speech_to_text(gcs_uri):
     print("Waiting for operation to complete...")
     response = operation.result(timeout=1800)
 
-    # Each result is for a consecutive portion of the audio. Iterate through
-    # them to get the transcripts for the entire audio file.
+    transcripts = {}
     for result in response.results:
-        # The first alternative is the most likely one for this portion.
-        print(f"Transcript: {result.alternatives[0].transcript}")
-        print(f"Confidence: {result.alternatives[0].confidence}")
+        if result.alternatives and result.alternatives[0].words:
+            speaker_tag = result.alternatives[0].words[0].speaker_tag
+            if speaker_tag not in transcripts:
+                transcripts[speaker_tag] = ""
+            transcripts[speaker_tag] += result.alternatives[0].transcript
+
+    for speaker_tag, transcript in transcripts.items():
+        print("Speaker {}: {}".format(speaker_tag, transcript))
+
+    # for result in response.results:
+    #     # The first alternative is the most likely one for this portion.
+    #     print(f"Transcript: {result.alternatives[0].transcript}")
+    #     print(f"Confidence: {result.alternatives[0].confidence}")
 
 
 def print_sentences(response):
@@ -129,7 +180,6 @@ def fetch_url(url):
 
 
 def clean_wavfile(wavfile):
-
     # load data
     rate, data = wavfile.read(wavfile)
     # perform noise reduction

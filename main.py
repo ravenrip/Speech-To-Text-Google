@@ -1,8 +1,5 @@
 import os
-
-
 from google.cloud import speech_v1 as speech
-
 from gcp_stt_util import get_filename, save_url_to_gcp_bucket, speech_to_text
 
 config = dict(language_code="en-US")
