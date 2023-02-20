@@ -1,7 +1,5 @@
 os_environ_util.py
 
-# Sample Data Folder    
-data/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
