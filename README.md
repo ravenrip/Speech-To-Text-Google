@@ -1,6 +1,6 @@
 # Speech-To-Text-Google
 
-The project was created initial by using the 'Running the Speech to Text Google samples' - codelabs
+The project was created initially by using the 'Running the Speech to Text Google samples' - codelabs
 <https://codelabs.developers.google.com/codelabs/cloud-speech-text-python3/#0>
 
 Also asked ChatGPT how to do it locally with this question:
