@@ -68,19 +68,19 @@ def speech_to_text(gcs_uri, _sample_rate_hertz=16000):
     client = speech.SpeechClient()
 
     audio = speech.RecognitionAudio(uri=gcs_uri)
-    # config = speech.RecognitionConfig(
-    #     encoding=speech.RecognitionConfig.AudioEncoding.LINEAR16,
-    #     # sample_rate_hertz=_sample_rate_hertz,
-    #     language_code="en-US",
-    # )
-
-    config = speech.v1p1beta1.types.RecognitionConfig(
-        encoding=speech.RecognitionConfig.AudioEncoding.FLAC,
+    config = speech.RecognitionConfig(
+        encoding=speech.RecognitionConfig.AudioEncoding.LINEAR16,
         sample_rate_hertz=_sample_rate_hertz,
         language_code="en-US",
-        enable_speaker_diarization=True,
-        diarization_speaker_count=2,
     )
+
+    # config = speech.v1p1beta1.types.RecognitionConfig(
+    #     encoding=speech.RecognitionConfig.AudioEncoding.FLAC,
+    #     sample_rate_hertz=_sample_rate_hertz,
+    #     language_code="en-US",
+    #     enable_speaker_diarization=True,
+    #     diarization_speaker_count=2,
+    # )
 
     operation = client.long_running_recognize(config=config, audio=audio)
 
@@ -96,7 +96,7 @@ def speech_to_text(gcs_uri, _sample_rate_hertz=16000):
             transcripts[speaker_tag] += result.alternatives[0].transcript
 
     for speaker_tag, transcript in transcripts.items():
-        print("Speaker {}: {}".format(speaker_tag, transcript))
+        print(f"Speaker {speaker_tag}: {transcript}")
 
     # for result in response.results:
     #     # The first alternative is the most likely one for this portion.
